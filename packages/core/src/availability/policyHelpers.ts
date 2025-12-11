@@ -16,6 +16,7 @@ import type {
 import { createDefaultPolicy, getModelPolicyChain } from './policyCatalog.js';
 import { DEFAULT_GEMINI_MODEL, getEffectiveModel } from '../config/models.js';
 import type { ModelSelectionResult } from './modelAvailabilityService.js';
+import type { ModelConfigKey } from '../services/modelConfigService.js';
 
 /**
  * Resolves the active policy chain for the given config, ensuring the
@@ -139,43 +140,29 @@ export function selectModelForAvailability(
  */
 export function applyModelSelection(
   config: Config,
-  requestedModel: string,
-  currentConfig?: GenerateContentConfig,
-  overrideScope?: string,
+  modelConfigKey: ModelConfigKey,
   options: { consumeAttempt?: boolean } = {},
-): { model: string; config?: GenerateContentConfig; maxAttempts?: number } {
-  const selection = selectModelForAvailability(config, requestedModel);
-
-  if (!selection?.selectedModel) {
-    return { model: requestedModel, config: currentConfig };
-  }
-
-  const finalModel = selection.selectedModel;
-  let finalConfig = currentConfig;
-
-  // If model changed, re-resolve config
-  if (finalModel !== requestedModel) {
-    const { generateContentConfig } =
-      config.modelConfigService.getResolvedConfig({
-        overrideScope,
-        model: finalModel,
-      });
-
-    finalConfig = currentConfig
-      ? { ...currentConfig, ...generateContentConfig }
-      : generateContentConfig;
-  }
+): { model: string; config: GenerateContentConfig; maxAttempts?: number } {
+  const { model } = config.modelConfigService.getResolvedConfig(modelConfigKey);
+  const selection = selectModelForAvailability(config, model);
+  const finalModel = selection?.selectedModel ?? model;
+  const { generateContentConfig } = config.modelConfigService.getResolvedConfig(
+    {
+      ...modelConfigKey,
+      model: finalModel,
+    },
+  );
 
   config.setActiveModel(finalModel);
 
-  if (selection.attempts && options.consumeAttempt !== false) {
+  if (selection?.attempts && options.consumeAttempt !== false) {
     config.getModelAvailabilityService().consumeStickyAttempt(finalModel);
   }
 
   return {
     model: finalModel,
-    config: finalConfig,
-    maxAttempts: selection.attempts,
+    config: generateContentConfig,
+    maxAttempts: selection?.attempts,
   };
 }
 
